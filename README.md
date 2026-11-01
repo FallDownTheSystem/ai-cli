@@ -1,6 +1,6 @@
 # ai
 
-**ChatGPT and Claude in your terminal, on the subscription you already pay for.**
+**Quick questions and shell commands from the command line, through Codex or Claude Code.**
 
 <table>
 <tr>
