@@ -5,7 +5,7 @@
 <table>
 <tr>
 <td width="50%" valign="top">
-<p><b>Ask a question</b></p>
+<p><b>Ask</b></p>
 <img src="docs/ask.gif" width="100%" alt="A short answer with a code block">
 <p><sub>A straight answer, with the command first.</sub></p>
 </td>
