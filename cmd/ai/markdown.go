@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"charm.land/glamour/v2"
@@ -21,7 +22,7 @@ type markdownRenderer struct {
 func newMarkdownRenderer(style string) *markdownRenderer {
 	r, err := glamour.NewTermRenderer(
 		glamourStyle(style),
-		glamour.WithWordWrap(min(terminalWidth(), 120)-4),
+		glamour.WithWordWrap(min(terminalWidth(), 120)),
 	)
 	if err != nil {
 		return &markdownRenderer{}
@@ -29,17 +30,22 @@ func newMarkdownRenderer(style string) *markdownRenderer {
 	return &markdownRenderer{r: r}
 }
 
-// glamourStyle loads a built-in style without the highlighter's error token.
-// The lexers mark text they do not understand as an error, such as the colon
-// in a URL inside a PowerShell block, and the style paints it red. Glamour
-// registers the code theme of the first renderer that runs for the whole
-// process, so ai must not render with any other style config.
+// glamourStyle loads a built-in style without margins and without the
+// highlighter's error token. Margins indent every line, so text and code
+// copied from the terminal would carry extra leading spaces. The lexers mark
+// text they do not understand as an error, such as the colon in a URL inside a
+// PowerShell block, and the style paints it red. Glamour registers the code
+// theme of the first renderer that runs for the whole process, so ai must not
+// render with any other style config.
 func glamourStyle(name string) glamour.TermRendererOption {
 	base, ok := glamourstyles.DefaultStyles[name]
 	if !ok {
 		return glamour.WithStylePath(name)
 	}
 	cfg := *base
+	noMargin := uint(0)
+	cfg.Document.Margin = &noMargin
+	cfg.CodeBlock.Margin = &noMargin
 	if cfg.CodeBlock.Chroma != nil {
 		chroma := *cfg.CodeBlock.Chroma
 		chroma.Error = glamouransi.StylePrimitive{}
@@ -62,11 +68,58 @@ func (m *markdownRenderer) render(text string) string {
 	if err != nil {
 		return strings.TrimSpace(text)
 	}
-	rendered := strings.Join(trimBlankLines(strings.Split(out, "\n")), "\n")
+	lines := trimBlankLines(strings.Split(out, "\n"))
+	for i, line := range lines {
+		lines[i] = trimPadding(line)
+	}
+	rendered := strings.Join(lines, "\n")
 	// Code keeps its tabs, but the live view measures a tab as no width while
 	// the terminal moves it to the next stop, so the view would erase too few
 	// cells on its next frame.
 	return strings.ReplaceAll(rendered, "\t", "    ")
+}
+
+// paddingCell is one cell of the padding glamour adds to fill a line to the
+// wrap width: a space, or a space or nothing in a style of its own.
+var paddingCell = regexp.MustCompile(`(?: |\x1b\[([0-9;]*)m ?\x1b\[0?m)$`)
+
+// trimPadding removes the padding at the end of a rendered line, so that text
+// copied from the terminal has no trailing spaces. A cell with a background
+// color is part of the text, such as the edge of a heading, and stays.
+func trimPadding(line string) string {
+	for {
+		m := paddingCell.FindStringSubmatchIndex(line)
+		if m == nil {
+			return line
+		}
+		if m[2] >= 0 && hasBackground(line[m[2]:m[3]]) {
+			return line
+		}
+		line = line[:m[0]]
+	}
+}
+
+// hasBackground reports whether SGR parameters set a background color.
+func hasBackground(params string) bool {
+	ps := strings.Split(params, ";")
+	for i := 0; i < len(ps); i++ {
+		n, err := strconv.Atoi(ps[i])
+		if err != nil {
+			continue
+		}
+		switch {
+		case n == 48, n >= 40 && n <= 47, n >= 100 && n <= 107:
+			return true
+		case n == 38 || n == 58:
+			// The color after a foreground or underline code is not a code itself.
+			if i+1 < len(ps) && ps[i+1] == "5" {
+				i += 2
+			} else if i+1 < len(ps) && ps[i+1] == "2" {
+				i += 4
+			}
+		}
+	}
+	return false
 }
 
 // answerStream turns the events of a streamed answer into rendered pieces for

@@ -89,12 +89,44 @@ func TestAnswerStreamToolCalls(t *testing.T) {
 	}
 }
 
-func plain(s string) string {
-	lines := strings.Split(ansi.Strip(s), "\n")
-	for i, l := range lines {
-		lines[i] = strings.TrimRight(l, " ")
+func plain(s string) string { return ansi.Strip(s) }
+
+// Text copied from the terminal must match what the answer says, with no
+// margin before it and no padding after it.
+func TestRenderHasNoMarginOrPadding(t *testing.T) {
+	out := newMarkdownRenderer("dark").render(sampleAnswer)
+	for _, line := range strings.Split(plain(out), "\n")[1:] {
+		if strings.HasSuffix(line, " ") {
+			t.Errorf("padded line: %q", line)
+		}
 	}
-	return strings.Join(lines, "\n")
+	for _, want := range []string{"\nFirst paragraph", "\nfunc main() {\n", "\n    fmt.Println(\"hi\")\n", "\n}\n"} {
+		if !strings.Contains("\n"+plain(out), want) {
+			t.Errorf("rendered answer lacks %q at the margin:\n%s", want, plain(out))
+		}
+	}
+	// The space after a heading has a background color, so it is part of the text.
+	if !strings.HasPrefix(plain(out), " Title \n") {
+		t.Errorf("heading lost its edges: %q", strings.SplitN(plain(out), "\n", 2)[0])
+	}
+}
+
+func TestHasBackground(t *testing.T) {
+	tests := map[string]bool{
+		"":                 false,
+		"0":                false,
+		"38;5;252":         false,
+		"38;5;48":          false,
+		"38;2;40;48;100":   false,
+		"38;5;228;48;5;63": true,
+		"1;44":             true,
+		"104":              true,
+	}
+	for params, want := range tests {
+		if got := hasBackground(params); got != want {
+			t.Errorf("hasBackground(%q) = %v, want %v", params, got, want)
+		}
+	}
 }
 
 func TestGlamourStyleDropsErrorToken(t *testing.T) {
